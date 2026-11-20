@@ -33,7 +33,7 @@ export const ordersCreatedTotal = new Counter({
 
 export const orderEventsTotal = new Counter({
   name: "commerce_order_events_total",
-  help: "Order events sent to the Redis stream",
+  help: "Order events published immediately or left for the outbox relay",
   labelNames: ["result"],
   registers: [registry],
 });

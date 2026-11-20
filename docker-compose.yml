@@ -20,7 +20,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./db/seed/001_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+      - ./db/migrations/002_outbox_events.sql:/docker-entrypoint-initdb.d/002_outbox_events.sql:ro
+      - ./db/seed/001_seed.sql:/docker-entrypoint-initdb.d/003_seed.sql:ro
     ports:
       - "${BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -152,6 +153,10 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-fitpulse_dev_redis_password}@redis:6379/0
       WORKER_STREAM_KEY: ${WORKER_STREAM_KEY:-fitpulse:events}
       WORKER_CONSUMER_GROUP: ${WORKER_CONSUMER_GROUP:-fitpulse-workers}
+      OUTBOX_RELAY_ENABLED: ${OUTBOX_RELAY_ENABLED:-true}
+      OUTBOX_RELAY_INTERVAL_SECONDS: ${OUTBOX_RELAY_INTERVAL_SECONDS:-2}
+      FULFILMENT_SIMULATOR_ENABLED: ${FULFILMENT_SIMULATOR_ENABLED:-true}
+      FULFILMENT_SIMULATOR_INTERVAL_SECONDS: ${FULFILMENT_SIMULATOR_INTERVAL_SECONDS:-30}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import express from "express";
 import { checkRedis } from "./cache";
 import { config } from "./config";
@@ -26,7 +27,16 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
 
 export const app = express();
 
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
 app.disable("x-powered-by");
+app.use((req, res, next) => {
+  const incoming = req.header("x-request-id");
+  const requestId = incoming && REQUEST_ID_PATTERN.test(incoming) ? incoming : randomUUID();
+  res.setHeader("X-Request-Id", requestId);
+  res.locals.requestId = requestId;
+  next();
+});
 app.use(express.json({ limit: "64kb" }));
 app.use(httpMetricsMiddleware);
 

@@ -1,0 +1,63 @@
+# Production-oriented override.
+# Use with: APP_ENV=prod docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# This file does not replace ingress/TLS/secrets management; it tightens runtime defaults.
+
+services:
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 64M
+
+  commerce-node-service:
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV for the target environment}
+      NODE_ENV: production
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  tracking-java-service:
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV for the target environment}
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+
+  worker-python-service:
+    environment:
+      APP_ENV: ${APP_ENV:?Set APP_ENV for the target environment}
+      FULFILMENT_SIMULATOR_ENABLED: ${FULFILMENT_SIMULATOR_ENABLED:-false}
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+  web-ui:
+    build:
+      args:
+        VITE_APP_ENV: ${APP_ENV:?Set APP_ENV for the target environment}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 32M

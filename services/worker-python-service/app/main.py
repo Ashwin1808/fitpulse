@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Awaitable
 
@@ -13,7 +14,9 @@ from redis.asyncio import Redis
 from .config import Settings
 from .consumer import EventConsumer
 from .db import Database
+from .fulfilment import FulfilmentSimulator
 from .metrics import HTTP_REQUESTS_TOTAL, SERVICE_INFO
+from .relay import OutboxRelay
 
 settings = Settings.from_env()
 logging.basicConfig(
@@ -36,14 +39,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     database = Database(settings)
     consumer = EventConsumer(settings, database, redis)
+    relay = OutboxRelay(settings, database, redis)
+    fulfilment = FulfilmentSimulator(settings, database)
 
     app.state.settings = settings
     app.state.redis = redis
     app.state.database = database
     app.state.consumer = consumer
+    app.state.relay = relay
+    app.state.fulfilment = fulfilment
     SERVICE_INFO.labels(settings.app_env, settings.consumer_group).set(1)
 
     await consumer.start()
+    await relay.start()
+    await fulfilment.start()
     LOGGER.info(
         "worker-python-service started environment=%s stream=%s group=%s",
         settings.app_env,
@@ -54,6 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         LOGGER.info("worker-python-service shutting down")
+        await fulfilment.stop()
+        await relay.stop()
         await consumer.stop()
         await redis.aclose()
 
@@ -70,7 +81,16 @@ app = FastAPI(
 
 @app.middleware("http")
 async def http_middleware(request: Request, call_next: Any) -> Response:
+    request_id = request.headers.get("x-request-id", "").strip()
+    if (
+        not request_id
+        or len(request_id) > 128
+        or not all(char.isalnum() or char in "._:-" for char in request_id)
+    ):
+        request_id = str(uuid.uuid4())
+
     response: Response = await call_next(request)
+    response.headers.setdefault("X-Request-Id", request_id)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Cache-Control", "no-store")
     path = request.url.path if request.url.path in METRIC_PATHS else "unmatched"
@@ -103,12 +123,14 @@ async def readyz(request: Request) -> JSONResponse:
     redis: Redis = request.app.state.redis
     database: Database = request.app.state.database
     consumer: EventConsumer = request.app.state.consumer
+    relay: OutboxRelay = request.app.state.relay
 
     redis_ready, database_ready = await asyncio.gather(
         _dependency_ready(redis.ping()),
         _dependency_ready(database.ping()),
     )
-    ready = redis_ready and database_ready and consumer.running
+    relay_ready = not config.outbox_relay_enabled or relay.running
+    ready = redis_ready and database_ready and consumer.running and relay_ready
 
     return JSONResponse(
         status_code=200 if ready else 503,
@@ -120,6 +142,11 @@ async def readyz(request: Request) -> JSONResponse:
                 "redis": "ok" if redis_ready else "down",
                 "postgres": "ok" if database_ready else "down",
                 "consumer": "running" if consumer.running else "stopped",
+                "outbox_relay": (
+                    "disabled"
+                    if not config.outbox_relay_enabled
+                    else ("running" if relay.running else "stopped")
+                ),
             },
         },
     )
@@ -134,9 +161,15 @@ async def metrics() -> Response:
 async def worker_stats(request: Request) -> dict[str, Any]:
     config: Settings = request.app.state.settings
     consumer: EventConsumer = request.app.state.consumer
+    relay: OutboxRelay = request.app.state.relay
+    fulfilment: FulfilmentSimulator = request.app.state.fulfilment
     snapshot = await consumer.snapshot()
+    relay_snapshot = await relay.snapshot()
+    fulfilment_snapshot = await fulfilment.snapshot()
     return {
         "status": "ok",
         "environment": config.app_env,
         **snapshot,
+        "outbox_relay": relay_snapshot,
+        "fulfilment": fulfilment_snapshot,
     }

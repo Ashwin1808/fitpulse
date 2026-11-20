@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -248,6 +249,7 @@ public final class ApiHandler implements HttpHandler {
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        applyRequestId(exchange);
         exchange.sendResponseHeaders(status, payload.length);
         try (OutputStream output = exchange.getResponseBody()) {
             output.write(payload);
@@ -259,6 +261,7 @@ public final class ApiHandler implements HttpHandler {
         exchange.getResponseHeaders().set("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-store");
         exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        applyRequestId(exchange);
         exchange.sendResponseHeaders(status, payload.length);
         try (OutputStream output = exchange.getResponseBody()) {
             output.write(payload);
@@ -267,6 +270,17 @@ public final class ApiHandler implements HttpHandler {
 
     private void sendError(HttpExchange exchange, int status, String message) throws IOException {
         sendJson(exchange, status, Map.of("error", message));
+    }
+
+    private static void applyRequestId(HttpExchange exchange) {
+        String requestId = exchange.getRequestHeaders().getFirst("X-Request-Id");
+        if (requestId == null
+            || requestId.isBlank()
+            || requestId.length() > 128
+            || !requestId.matches("[A-Za-z0-9._:-]+")) {
+            requestId = UUID.randomUUID().toString();
+        }
+        exchange.getResponseHeaders().set("X-Request-Id", requestId);
     }
 
     private static String resolveRoute(String path) {

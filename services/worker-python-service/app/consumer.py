@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,6 +12,7 @@ from redis.exceptions import RedisError, ResponseError
 
 from .config import Settings
 from .db import Database
+from .events import validate_payload
 from .metrics import (
     CONSUMER_RUNNING,
     DEAD_LETTERED_TOTAL,
@@ -25,8 +24,6 @@ from .metrics import (
 )
 
 LOGGER = logging.getLogger(__name__)
-ORDER_NUMBER_PATTERN = re.compile(r"^[A-Z0-9-]{3,64}$")
-EVENT_TYPE_PATTERN = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 
 
 class EventConsumer:
@@ -171,7 +168,7 @@ class EventConsumer:
 
         try:
             payload = json.loads(raw_event)
-            event_id, event_type, data = self._validate_payload(payload)
+            event_id, event_type, data = validate_payload(payload)
         except (json.JSONDecodeError, ValueError) as error:
             await self._dead_letter(message_id, fields, error)
             return
@@ -209,7 +206,8 @@ class EventConsumer:
             EVENT_FAILURES_TOTAL.labels(reason="processing").inc()
             LOGGER.exception("event %s failed; leaving it pending for retry", message_id)
 
-    def _validate_payload(self, payload: Any) -> tuple[str, str, dict[str, Any]]:
+    @staticmethod
+    def _validate_payload(payload: Any) -> tuple[str, str, dict[str, Any]]:
         if not isinstance(payload, dict):
             raise ValueError("Event payload must be an object")
 
