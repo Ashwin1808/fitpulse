@@ -75,11 +75,26 @@ CREATE TABLE IF NOT EXISTS processed_events (
     processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id UUID PRIMARY KEY,
+    aggregate_type TEXT NOT NULL,
+    aggregate_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    published_at TIMESTAMPTZ,
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
+    last_error TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_customer_email ON orders (customer_email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items (order_id);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products (category);
 CREATE INDEX IF NOT EXISTS idx_order_tracking_updated_at ON order_tracking (updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tracking_events_tracking_id ON tracking_events (tracking_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_events_unpublished
+    ON outbox_events (created_at)
+    WHERE published_at IS NULL;
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$

@@ -30,6 +30,17 @@ def _positive_int(name: str, fallback: int) -> int:
     return value
 
 
+def _bool(name: str, fallback: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return fallback
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean")
+
+
 @dataclass(frozen=True)
 class Settings:
     app_env: str
@@ -43,6 +54,10 @@ class Settings:
     dead_letter_key: str
     consumer_group: str
     consumer_name: str
+    outbox_relay_enabled: bool
+    outbox_relay_interval_seconds: int
+    fulfilment_simulator_enabled: bool
+    fulfilment_simulator_interval_seconds: int
     log_level: str
 
     @classmethod
@@ -61,5 +76,9 @@ class Settings:
             dead_letter_key=_string("WORKER_DEAD_LETTER_KEY", f"{stream_key}:dead"),
             consumer_group=_string("WORKER_CONSUMER_GROUP", "fitpulse-workers"),
             consumer_name=_string("WORKER_CONSUMER_NAME", default_consumer),
+            outbox_relay_enabled=_bool("OUTBOX_RELAY_ENABLED", True),
+            outbox_relay_interval_seconds=_positive_int("OUTBOX_RELAY_INTERVAL_SECONDS", 2),
+            fulfilment_simulator_enabled=_bool("FULFILMENT_SIMULATOR_ENABLED", False),
+            fulfilment_simulator_interval_seconds=_positive_int("FULFILMENT_SIMULATOR_INTERVAL_SECONDS", 30),
             log_level=_string("LOG_LEVEL", "info").upper(),
         )

@@ -48,3 +48,29 @@ SERVICE_INFO = Gauge(
     "Worker service build information",
     ["environment", "consumer_group"],
 )
+
+OUTBOX_RELAY_PUBLISHED_TOTAL = Counter(
+    "fitpulse_worker_outbox_relay_published_total",
+    "Outbox events published to the Redis stream by the relay",
+    ["result"],
+)
+
+OUTBOX_UNPUBLISHED = Gauge(
+    "fitpulse_worker_outbox_unpublished",
+    "Outbox events waiting to be published",
+)
+
+OUTBOX_RELAY_RUNNING = Gauge(
+    "fitpulse_worker_outbox_relay_running",
+    "Whether the outbox relay loop is running",
+)
+
+FULFILMENT_ADVANCED_TOTAL = Counter(
+    "fitpulse_worker_fulfilment_advanced_total",
+    "Tracking records advanced by the fulfilment simulator",
+)
+
+FULFILMENT_SIMULATOR_RUNNING = Gauge(
+    "fitpulse_worker_fulfilment_simulator_running",
+    "Whether the fulfilment simulator loop is running",
+)

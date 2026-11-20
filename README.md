@@ -59,7 +59,8 @@ All host ports bind to `127.0.0.1` by default. Nginx is the only intended public
 - Displays recent order tracking records.
 - Looks up a specific order by number.
 - Shows fulfilment progress and a chronological event timeline.
-- Displays worker heartbeat, Redis queue state, processed events, and dead-letter counts.
+- Displays worker heartbeat, Redis queue state, processed events, outbox relay state, and dead-letter counts.
+- Order events are written to a transactional outbox, so checkout remains reliable even if Redis is temporarily unavailable.
 
 ## Quick Start
 
@@ -207,13 +208,17 @@ Configuration is supplied through environment variables. Start from `.env.exampl
 | `CACHE_TTL_SECONDS` | `60` | Product cache TTL |
 | `WORKER_STREAM_KEY` | `fitpulse:events` | Redis stream name |
 | `WORKER_CONSUMER_GROUP` | `fitpulse-workers` | Redis consumer group |
+| `OUTBOX_RELAY_ENABLED` | `true` | Worker relay that publishes unpublished outbox events |
+| `OUTBOX_RELAY_INTERVAL_SECONDS` | `2` | Outbox relay poll interval |
+| `FULFILMENT_SIMULATOR_ENABLED` | `true` in dev Compose | Advances demo tracking statuses; disable in production |
+| `FULFILMENT_SIMULATOR_INTERVAL_SECONDS` | `30` | Fulfilment simulator tick interval |
 | `LOG_LEVEL` | `info` | Python worker log level |
 
 The web service receives `VITE_APP_ENV` as a Docker build argument. Because Vite embeds this value at build time, build the web image once per environment when the environment badge must differ.
 
 ## Database and Seed Data
 
-The schema is in `db/migrations/001_init.sql` and the seed is in `db/seed/001_seed.sql`.
+The schema is in `db/migrations/` and the seed is in `db/seed/001_seed.sql`. Migrations are numbered and written to be idempotent so they can be applied to fresh databases by Compose or to existing databases with `scripts/db-migrate.sh`.
 
 Tables:
 
@@ -307,11 +312,19 @@ A suitable pipeline can use these stages:
 Repository commands already available for validation:
 
 ```bash
+./scripts/validate.sh
+python3 scripts/smoke.py
 cd services/commerce-node-service && npm run build
 cd services/tracking-java-service && mvn package
 cd services/worker-python-service && python3 -m compileall -q app
 cd services/web-ui && npm run build
 docker compose config --quiet
+```
+
+Apply migrations to an existing database:
+
+```bash
+DATABASE_URL=postgresql://fitpulse:...@localhost:5432/fitpulse ./scripts/db-migrate.sh
 ```
 
 ## Security and Operations
@@ -325,30 +338,35 @@ Implemented controls:
 - `no-new-privileges` enabled.
 - Localhost-only published ports by default.
 - Redis password authentication.
-- Nginx security headers, CSP, gzip, request-size limits, and hidden upstream framework headers.
+- Nginx security headers, CSP, gzip, request-size limits, hidden upstream framework headers, per-IP API rate limiting, and request ID propagation.
 - Service-level liveness, readiness, and Prometheus metrics.
-- Redis consumer group, pending-message reclamation, retries, and dead-letter stream.
+- Redis consumer group, pending-message reclamation, retries, dead-letter stream, and a transactional outbox relay.
 - Transactional checkout with stock protection.
 - Idempotent event processing.
+
+See [docs/security.md](docs/security.md) for the production security baseline and external integrations still required.
 
 Recommended production additions:
 
 - Network policies restricting each service to only its dependencies.
 - Image digest pinning and automated rebuilds for base-image patches.
-- Central log aggregation and alerting on readiness failures, worker errors, and dead-letter growth.
+- Central log aggregation and alerting on readiness failures, worker errors, dead-letter growth, and unpublished outbox events.
 - Backup and restore testing for PostgreSQL.
 - Redis persistence and recovery testing.
-- Rate limiting and authenticated customer access if the demo is extended beyond the current scope.
+- Authenticated customer access and tenant-aware rate limits if the demo is extended beyond the current scope.
 
 ## Project Layout
 
 ```text
 fitpulse/
 ├── docker-compose.yml
+├── docker-compose.prod.yml
 ├── .env.example
 ├── db/
-│   ├── migrations/001_init.sql
+│   ├── migrations/
 │   └── seed/001_seed.sql
+├── docs/
+├── scripts/
 └── services/
     ├── commerce-node-service/
     ├── tracking-java-service/

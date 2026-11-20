@@ -1,11 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { Router } from "express";
 import type { PoolClient } from "pg";
-import { deleteCache, publishEvent } from "../cache";
+import { deleteCache, publishEvent, type OrderCreatedEvent } from "../cache";
 import { productsCacheKey } from "../cacheKeys";
 import { pool } from "../db";
 import { HttpError, asyncHandler } from "../errors";
 import { orderEventsTotal, ordersCreatedTotal } from "../metrics";
+import { insertOutboxEvent, markOutboxPublished, recordOutboxFailure } from "../outbox";
 
 interface OrderItem {
   product_id: number;
@@ -158,6 +159,7 @@ ordersRouter.post(
     let totalCents = 0;
     let createdAt = new Date();
     const createdItems: OrderItem[] = [];
+    let orderEvent: OrderCreatedEvent | null = null;
 
     try {
       await client.query("BEGIN");
@@ -213,6 +215,19 @@ ordersRouter.post(
       }
 
       await client.query("UPDATE orders SET total_cents = $1 WHERE id = $2", [totalCents, orderId]);
+
+      orderEvent = {
+        event_id: randomUUID(),
+        type: "order.created",
+        occurred_at: new Date(createdAt).toISOString(),
+        data: {
+          order_id: orderId,
+          order_number: orderNumber,
+          customer_email: input.customerEmail,
+          total_cents: totalCents,
+        },
+      };
+      await insertOutboxEvent(client, orderEvent);
       await client.query("COMMIT");
     } catch (error) {
       await rollbackQuietly(client);
@@ -224,18 +239,24 @@ ordersRouter.post(
     ordersCreatedTotal.inc();
     await deleteCache(productsCacheKey);
 
-    const eventEnqueued = await publishEvent({
-      event_id: randomUUID(),
-      type: "order.created",
-      occurred_at: new Date().toISOString(),
-      data: {
-        order_id: orderId,
-        order_number: orderNumber,
-        customer_email: input.customerEmail,
-        total_cents: totalCents,
-      },
-    });
-    orderEventsTotal.inc({ result: eventEnqueued ? "published" : "failed" });
+    let eventPublished = false;
+    if (orderEvent) {
+      eventPublished = await publishEvent(orderEvent);
+      try {
+        if (eventPublished) {
+          await markOutboxPublished(orderEvent.event_id);
+        } else {
+          await recordOutboxFailure(orderEvent.event_id, "initial Redis publish failed");
+        }
+      } catch (error) {
+        console.error(
+          "[commerce] failed to update outbox state",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    orderEventsTotal.inc({ result: eventPublished ? "published" : "outbox" });
+    const eventEnqueued = orderEvent !== null;
 
     res.status(201).json({
       order: {
