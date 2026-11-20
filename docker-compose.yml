@@ -1,0 +1,216 @@
+name: ${COMPOSE_PROJECT_NAME:-fitpulse}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-environment-label: &environment-label
+  com.fitpulse.environment: "${APP_ENV:-dev}"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fitpulse}
+      POSTGRES_USER: ${POSTGRES_USER:-fitpulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fitpulse_dev_db_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./db/seed/001_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-fitpulse_dev_redis_password}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-fitpulse_dev_redis_password}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+  commerce-node-service:
+    build:
+      context: ./services/commerce-node-service
+    image: fitpulse/commerce-node-service:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-dev}
+      PORT: "3000"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-fitpulse}
+      DB_USER: ${POSTGRES_USER:-fitpulse}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fitpulse_dev_db_password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-fitpulse_dev_redis_password}@redis:6379/0
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      WORKER_STREAM_KEY: ${WORKER_STREAM_KEY:-fitpulse:events}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${COMMERCE_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+  tracking-java-service:
+    build:
+      context: ./services/tracking-java-service
+    image: fitpulse/tracking-java-service:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      PORT: "8080"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-fitpulse}
+      DB_USER: ${POSTGRES_USER:-fitpulse}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fitpulse_dev_db_password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${TRACKING_PORT:-8081}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/readyz > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+  worker-python-service:
+    build:
+      context: ./services/worker-python-service
+    image: fitpulse/worker-python-service:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    environment:
+      APP_ENV: ${APP_ENV:-dev}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:-fitpulse}
+      DB_USER: ${POSTGRES_USER:-fitpulse}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-fitpulse_dev_db_password}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-fitpulse_dev_redis_password}@redis:6379/0
+      WORKER_STREAM_KEY: ${WORKER_STREAM_KEY:-fitpulse:events}
+      WORKER_CONSUMER_GROUP: ${WORKER_CONSUMER_GROUP:-fitpulse-workers}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${WORKER_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+  web-ui:
+    build:
+      context: ./services/web-ui
+      args:
+        VITE_APP_ENV: ${APP_ENV:-dev}
+    image: fitpulse/web-ui:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      commerce-node-service:
+        condition: service_healthy
+      tracking-java-service:
+        condition: service_healthy
+      worker-python-service:
+        condition: service_healthy
+    ports:
+      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels: *environment-label
+    logging: *default-logging
+
+volumes:
+  postgres_data:
+  redis_data:

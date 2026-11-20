@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-[#f4f6f1] font-sans text-ink-950 antialiased;
+    background-image:
+      radial-gradient(circle at 0% 0%, rgba(190, 242, 100, 0.16), transparent 32rem),
+      radial-gradient(circle at 100% 5%, rgba(12, 23, 19, 0.07), transparent 28rem);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-pulse-300 text-ink-950;
+  }
+}
+
+@layer components {
+  .app-card {
+    @apply rounded-[1.75rem] border border-ink-900/10 bg-white shadow-soft;
+  }
+
+  .eyebrow {
+    @apply text-[0.68rem] font-bold uppercase tracking-[0.22em] text-ink-500;
+  }
+
+  .input-field {
+    @apply w-full rounded-2xl border border-ink-900/10 bg-white px-4 py-3 text-sm font-medium text-ink-950 outline-none transition placeholder:text-ink-400 focus:border-pulse-600 focus:ring-4 focus:ring-pulse-500/15;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink-800 focus:outline-none focus-visible:ring-4 focus-visible:ring-ink-900/20 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-lime {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-pulse-300 px-5 py-3 text-sm font-bold text-ink-950 transition hover:bg-pulse-400 focus:outline-none focus-visible:ring-4 focus-visible:ring-pulse-500/30 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-ink-900/15 bg-white/70 px-4 py-2.5 text-sm font-semibold text-ink-900 transition hover:border-ink-900/30 hover:bg-white focus:outline-none focus-visible:ring-4 focus-visible:ring-ink-900/10 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+}
