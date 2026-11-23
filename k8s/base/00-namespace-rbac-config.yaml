@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fitpulse-dev
+  labels:
+    app.kubernetes.io/part-of: fitpulse
+    environment: dev
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fitpulse-workload-sa
+  namespace: fitpulse-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fitpulse-app-reader
+  namespace: fitpulse-dev
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "endpoints", "configmaps"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fitpulse-app-reader-binding
+  namespace: fitpulse-dev
+subjects:
+  - kind: ServiceAccount
+    name: fitpulse-workload-sa
+    namespace: fitpulse-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fitpulse-app-reader
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fitpulse-config
+  namespace: fitpulse-dev
+data:
+  APP_ENV: "dev"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "fitpulse"
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  DB_NAME: "fitpulse"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_URL: "redis://redis:6379"
+  COMMERCE_PORT: "3000"
+  TRACKING_PORT: "8080"
+  WORKER_PORT: "8000"
+  WEB_UI_PORT: "8080"
+  LOG_LEVEL: "info"
+---
+# NOTE: Kubernetes Secret values are base64-encoded (NOT encrypted at rest unless
+# cluster KMS/etcd encryption is enabled). In AWS, manage real secrets in AWS Secrets Manager.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fitpulse-db-secret
+  namespace: fitpulse-dev
+type: Opaque
+stringData:
+  POSTGRES_USER: "fitpulse"
+  POSTGRES_PASSWORD: "change_me_local_dev_only"
+  DB_USER: "fitpulse"
+  DB_PASSWORD: "change_me_local_dev_only"
+  DATABASE_URL: "postgres://fitpulse:change_me_local_dev_only@postgres:5432/fitpulse"

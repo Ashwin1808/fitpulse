@@ -1,0 +1,168 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fitpulse-default-network-policy
+  namespace: fitpulse-dev
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fitpulse-dev
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fitpulse-dev
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Traditional Kubernetes Ingress (HTTP routing example)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fitpulse-ingress
+  namespace: fitpulse-dev
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+    - host: fitpulse.local
+      http:
+        paths:
+          - path: /api/products
+            pathType: Prefix
+            backend:
+              service:
+                name: commerce-node-service
+                port:
+                  number: 3000
+          - path: /api/orders
+            pathType: Prefix
+            backend:
+              service:
+                name: commerce-node-service
+                port:
+                  number: 3000
+          - path: /api/foods
+            pathType: Prefix
+            backend:
+              service:
+                name: tracking-java-service
+                port:
+                  number: 8080
+          - path: /api/calories
+            pathType: Prefix
+            backend:
+              service:
+                name: tracking-java-service
+                port:
+                  number: 8080
+          - path: /api/track
+            pathType: Prefix
+            backend:
+              service:
+                name: tracking-java-service
+                port:
+                  number: 8080
+          - path: /api/worker
+            pathType: Prefix
+            backend:
+              service:
+                name: worker-python-service
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web-ui
+                port:
+                  number: 8080
+---
+# Modern Kubernetes Gateway API (Requires Gateway API CRDs + controller in cluster)
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: fitpulse-gateway
+  namespace: fitpulse-dev
+spec:
+  gatewayClassName: envoy-gateway
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: fitpulse-httproute
+  namespace: fitpulse-dev
+spec:
+  parentRefs:
+    - name: fitpulse-gateway
+  hostnames:
+    - "fitpulse.local"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/products
+        - path:
+            type: PathPrefix
+            value: /api/orders
+      backendRefs:
+        - name: commerce-node-service
+          port: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/foods
+        - path:
+            type: PathPrefix
+            value: /api/calories
+        - path:
+            type: PathPrefix
+            value: /api/track
+      backendRefs:
+        - name: tracking-java-service
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/worker
+      backendRefs:
+        - name: worker-python-service
+          port: 8000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: web-ui
+          port: 8080
+---
+# Example ReferenceGrant if a route in another namespace references a fitpulse-dev Service
+apiVersion: gateway.networking.k8s.io/v1
+kind: ReferenceGrant
+metadata:
+  name: allow-routes-to-commerce
+  namespace: fitpulse-dev
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: fitpulse-dev
+  to:
+    - group: ""
+      kind: Service
