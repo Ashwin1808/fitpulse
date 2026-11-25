@@ -44,7 +44,7 @@ pipeline {
       }
     }
 
-    stage('4. SAST Analysis (SonarQube)') {
+    stage('4. SAST & Quality Gate (SonarQube)') {
       steps {
         withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
           sh '''
@@ -55,7 +55,9 @@ pipeline {
               -Dsonar.projectName=${SONAR_PROJECT_KEY} \
               -Dsonar.sources=src \
               -Dsonar.host.url=${SONAR_HOST_URL} \
-              -Dsonar.token=${SONAR_TOKEN}
+              -Dsonar.login=${SONAR_TOKEN} \
+              -Dsonar.qualitygate.wait=true \
+              -Dsonar.qualitygate.timeout=300
           '''
         }
       }
@@ -87,7 +89,10 @@ pipeline {
         )]) {
           sh '''
             mkdir -p artifacts
-            tar -czf artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz ${SERVICE_DIR}/dist k8s/
+            MANIFEST_DIR=""
+            [ -d "gitops" ] && MANIFEST_DIR="gitops/"
+            [ -d "k8s" ] && MANIFEST_DIR="k8s/"
+            tar -czf artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz ${SERVICE_DIR}/dist ${MANIFEST_DIR}
             curl -fsS -u "${NEXUS_USER}:${NEXUS_PASS}" \
               --upload-file artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz \
               "${NEXUS_URL}/repository/${NEXUS_REPO}/${SERVICE_NAME}/${IMAGE_TAG}/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz"
