@@ -1,0 +1,103 @@
+pipeline {
+  agent {
+    label 'fitpulse-agent'
+  }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+  }
+
+  environment {
+    SERVICE_NAME      = "web-ui"
+    SERVICE_DIR       = "services/web-ui"
+    SONAR_PROJECT_KEY = "fitpulse-web-ui"
+    SONAR_HOST_URL    = "http://sonarqube:9000"
+    NEXUS_URL         = "http://nexus:8081"
+    NEXUS_REPO        = "fitpulse-raw"
+    IMAGE_TAG         = "sha-${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'local'}"
+    IMAGE_NAME        = "fitpulse/${SERVICE_NAME}:${IMAGE_TAG}"
+  }
+
+  stages {
+    stage('1. Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('2. Secret Scan (Gitleaks)') {
+      steps {
+        sh '''
+          docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --exit-code 1
+        '''
+      }
+    }
+
+    stage('3. Build & Typecheck') {
+      steps {
+        sh '''
+          docker run --rm -v "$(pwd):/app" -w /app/services/web-ui node:20-alpine \
+            sh -c "npm ci --no-audit --no-fund && npm run typecheck && npm run build"
+        '''
+      }
+    }
+
+    stage('4. SAST Analysis (SonarQube)') {
+      steps {
+        sh '''
+          docker run --rm --network fitpulse-ci \
+            -v "$(pwd)/services/web-ui:/usr/src" \
+            sonarsource/sonar-scanner-cli:latest \
+            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+            -Dsonar.projectName=${SONAR_PROJECT_KEY} \
+            -Dsonar.sources=src \
+            -Dsonar.host.url=${SONAR_HOST_URL}
+        '''
+      }
+    }
+
+    stage('5. Build Docker Image') {
+      steps {
+        sh '''
+          docker build -t "${IMAGE_NAME}" "${SERVICE_DIR}"
+        '''
+      }
+    }
+
+    stage('6. Container & Dependency CVE Scan (Trivy)') {
+      steps {
+        sh '''
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity CRITICAL,HIGH --exit-code 0 "${IMAGE_NAME}"
+        '''
+      }
+    }
+
+    stage('7. Package & Publish Artifact to Nexus') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'nexus-creds',
+          usernameVariable: 'NEXUS_USER',
+          passwordVariable: 'NEXUS_PASS'
+        )]) {
+          sh '''
+            mkdir -p artifacts
+            tar -czf artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz ${SERVICE_DIR}/dist k8s/
+            curl -fsS -u "${NEXUS_USER}:${NEXUS_PASS}" \
+              --upload-file artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz \
+              "${NEXUS_URL}/repository/${NEXUS_REPO}/${SERVICE_NAME}/${IMAGE_TAG}/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz"
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs(deleteDirs: true, notFailBuild: true)
+    }
+  }
+}
