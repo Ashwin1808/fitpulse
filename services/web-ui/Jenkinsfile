@@ -27,15 +27,6 @@ pipeline {
       }
     }
 
-    // stage('2. Secret Scan (Gitleaks)') {
-    //   steps {
-    //     sh '''
-    //       docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest \
-    //         detect --source=/repo --exit-code 1
-    //     '''
-    //   }
-    // }
-
     stage('2. Secret Scan (Gitleaks)') {
       steps {
         sh '''
@@ -47,7 +38,7 @@ pipeline {
     stage('3. Build & Typecheck') {
       steps {
         sh '''
-          docker run --rm -v "$(pwd):/app" -w /app/services/web-ui node:20-alpine \
+          docker run --rm -v /Users/user/Desktop/all/fitpulse/.jenkins-agent-work/workspace/fitpulse-web-ui_feat_local-k8s:/app -w /app/services/web-ui node:20-alpine \
             sh -c "npm ci --no-audit --no-fund && npm run typecheck && npm run build"
         '''
       }
@@ -55,15 +46,18 @@ pipeline {
 
     stage('4. SAST Analysis (SonarQube)') {
       steps {
-        sh '''
-          docker run --rm --network fitpulse-ci \
-            -v "$(pwd)/services/web-ui:/usr/src" \
-            sonarsource/sonar-scanner-cli:latest \
-            -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
-            -Dsonar.projectName=${SONAR_PROJECT_KEY} \
-            -Dsonar.sources=src \
-            -Dsonar.host.url=${SONAR_HOST_URL}
-        '''
+        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+          sh '''
+            docker run --rm --network fitpulse-ci \
+              -v /Users/user/Desktop/all/fitpulse/.jenkins-agent-work/workspace/fitpulse-web-ui_feat_local-k8s/services/web-ui:/usr/src \
+              sonarsource/sonar-scanner-cli:latest \
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+              -Dsonar.projectName=${SONAR_PROJECT_KEY} \
+              -Dsonar.sources=src \
+              -Dsonar.host.url=${SONAR_HOST_URL} \
+              -Dsonar.token=${SONAR_TOKEN}
+          '''
+        }
       }
     }
 
