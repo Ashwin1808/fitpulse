@@ -31,6 +31,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install dependencies, compile, and run unit tests
+        run: |
+          if [ -f services/worker-python-service/requirements.txt ]; then
+            pip install --upgrade pip
+            pip install -r services/worker-python-service/requirements.txt
+          fi
+          python3 -m py_compile $(find services/worker-python-service/app -name "*.py")
+          PYTHONPATH=services/worker-python-service python3 -m unittest discover -v services/worker-python-service/tests
+
       - name: Compile and run unit tests
         run: |
           python3 -m py_compile $(find services/worker-python-service/app -name "*.py")
