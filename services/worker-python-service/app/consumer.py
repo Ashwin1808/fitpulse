@@ -12,7 +12,7 @@ from redis.exceptions import RedisError, ResponseError
 
 from .config import Settings
 from .db import Database
-from .events import validate_payload
+from .events import EVENT_TYPE_PATTERN, validate_payload
 from .metrics import (
     CONSUMER_RUNNING,
     DEAD_LETTERED_TOTAL,
