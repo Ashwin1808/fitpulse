@@ -23,6 +23,7 @@ from .metrics import (
     STREAM_LENGTH,
 )
 
+import uuid
 LOGGER = logging.getLogger(__name__)
 
 
