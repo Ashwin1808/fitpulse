@@ -13,3 +13,5 @@ coverage/
 *.log
 .idea/
 .vscode/
+.jenkins-agent-work/compose.jenkins-agent.yml
+.jenkins-agent-work/

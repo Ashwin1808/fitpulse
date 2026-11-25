@@ -27,11 +27,19 @@ pipeline {
       }
     }
 
+    // stage('2. Secret Scan (Gitleaks)') {
+    //   steps {
+    //     sh '''
+    //       docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest \
+    //         detect --source=/repo --exit-code 1
+    //     '''
+    //   }
+    // }
+
     stage('2. Secret Scan (Gitleaks)') {
       steps {
         sh '''
-          docker run --rm -v "$(pwd):/repo" zricethezav/gitleaks:latest \
-            detect --source=/repo --exit-code 1
+          gitleaks detect --source . --exit-code 1
         '''
       }
     }

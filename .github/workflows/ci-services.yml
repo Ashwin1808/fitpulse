@@ -1,4 +1,11 @@
-# name: FitPulse Monorepo CI
+name: FitPulse Monorepo CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
 
 # on:
 #   push:
@@ -11,7 +18,7 @@
 #     paths-ignore:
 #       - "docs/**"
 #       - "**/*.md"
-
+  
 # jobs:
 #   secret-scan:
 #     runs-on: ubuntu-latest
@@ -94,3 +101,4 @@
 #       - run: npm --prefix services/web-ui ci --no-audit --no-fund
 #       - run: npm --prefix services/web-ui run typecheck
 #       - run: npm --prefix services/web-ui run build
+
