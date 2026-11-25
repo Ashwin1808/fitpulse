@@ -1,0 +1,37 @@
+name: CI - Worker Python Service
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**"]
+    paths:
+      - "services/worker-python-service/**"
+      - ".github/workflows/ci-worker.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "services/worker-python-service/**"
+      - ".github/workflows/ci-worker.yml"
+
+jobs:
+  test-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile and run unit tests
+        run: |
+          python3 -m py_compile $(find services/worker-python-service/app -name "*.py")
+          PYTHONPATH=services/worker-python-service python3 -m unittest discover -v services/worker-python-service/tests

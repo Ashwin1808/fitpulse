@@ -1,0 +1,40 @@
+name: CI - Commerce Node Service
+
+on:
+  push:
+    branches: ["main", "feat/**", "fix/**"]
+    paths:
+      - "services/commerce-node-service/**"
+      - ".github/workflows/ci-commerce.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "services/commerce-node-service/**"
+      - ".github/workflows/ci-commerce.yml"
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: services/commerce-node-service/package-lock.json
+
+      - name: Install, typecheck, and build commerce-node-service
+        run: |
+          npm --prefix services/commerce-node-service ci --no-audit --no-fund
+          npm --prefix services/commerce-node-service run typecheck
+          npm --prefix services/commerce-node-service run build
