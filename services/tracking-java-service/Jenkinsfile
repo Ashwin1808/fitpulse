@@ -1,0 +1,114 @@
+pipeline {
+  agent {
+    label 'fitpulse-agent'
+  }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '10'))
+  }
+
+  environment {
+    SERVICE_NAME      = "tracking-java-service"
+    SERVICE_DIR       = "services/tracking-java-service"
+    SONAR_PROJECT_KEY = "fitpulse-tracking-java-service"
+    SONAR_HOST_URL    = "http://sonarqube:9000"
+    NEXUS_URL         = "http://nexus:8081"
+    NEXUS_REPO        = "fitpulse-raw"
+    IMAGE_TAG         = "sha-${env.GIT_COMMIT ? env.GIT_COMMIT.take(7) : 'local'}"
+    IMAGE_NAME        = "fitpulse/${SERVICE_NAME}:${IMAGE_TAG}"
+  }
+
+  stages {
+    stage('1. Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('2. Secret Scan (Gitleaks)') {
+      steps {
+        sh '''
+          gitleaks detect --source . --exit-code 1
+        '''
+      }
+    }
+
+    stage('3. Build & Test (Maven)') {
+      steps {
+        sh '''
+          docker run --rm \
+            -v "${WORKSPACE}:/app" \
+            -v fitpulse-m2-cache:/root/.m2 \
+            -w "/app/${SERVICE_DIR}" \
+            maven:3.9-eclipse-temurin-21 \
+            mvn -B test package
+        '''
+      }
+    }
+
+    stage('4. SAST & Quality Gate (SonarQube)') {
+      steps {
+        withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+          sh '''
+            docker run --rm --network fitpulse-ci \
+              -v "${WORKSPACE}/${SERVICE_DIR}:/usr/src" \
+              sonarsource/sonar-scanner-cli:latest \
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+              -Dsonar.projectName=${SONAR_PROJECT_KEY} \
+              -Dsonar.sources=src/main \
+              -Dsonar.host.url=${SONAR_HOST_URL} \
+              -Dsonar.login=${SONAR_TOKEN} \
+              -Dsonar.qualitygate.wait=true \
+              -Dsonar.qualitygate.timeout=300
+          '''
+        }
+      }
+    }
+
+    stage('5. Build Docker Image') {
+      steps {
+        sh '''
+          docker build -t "${IMAGE_NAME}" "${SERVICE_DIR}"
+        '''
+      }
+    }
+
+    stage('6. Container & Dependency CVE Scan (Trivy)') {
+      steps {
+        sh '''
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image --severity CRITICAL,HIGH --exit-code 0 "${IMAGE_NAME}"
+        '''
+      }
+    }
+
+    stage('7. Package & Publish Artifact to Nexus') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'nexus-creds',
+          usernameVariable: 'NEXUS_USER',
+          passwordVariable: 'NEXUS_PASS'
+        )]) {
+          sh '''
+            mkdir -p artifacts
+            MANIFEST_DIR=""
+            [ -d "gitops" ] && MANIFEST_DIR="gitops/"
+            [ -d "k8s" ] && MANIFEST_DIR="k8s/"
+            tar -czf "artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz" "${SERVICE_DIR}/target" ${MANIFEST_DIR}
+            curl -fsS -u "${NEXUS_USER}:${NEXUS_PASS}" \
+              --upload-file "artifacts/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz" \
+              "${NEXUS_URL}/repository/${NEXUS_REPO}/${SERVICE_NAME}/${IMAGE_TAG}/${SERVICE_NAME}-${IMAGE_TAG}.tar.gz"
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      cleanWs(deleteDirs: true, notFailBuild: true)
+    }
+  }
+}
