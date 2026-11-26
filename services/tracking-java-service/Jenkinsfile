@@ -58,6 +58,8 @@ pipeline {
               -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
               -Dsonar.projectName=${SONAR_PROJECT_KEY} \
               -Dsonar.sources=src/main \
+              -Dsonar.java.binaries=target/classes \
+              -Dsonar.java.source=21 \
               -Dsonar.host.url=${SONAR_HOST_URL} \
               -Dsonar.login=${SONAR_TOKEN} \
               -Dsonar.qualitygate.wait=true \
